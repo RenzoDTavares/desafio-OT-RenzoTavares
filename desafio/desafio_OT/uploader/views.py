@@ -3,8 +3,12 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.pagination import PageNumberPagination
+from django.contrib.auth import authenticate
+from rest_framework.authtoken.models import Token
 from .models import UploadHistory
 from .serializers import UploadHistorySerializer
+from rest_framework.permissions import AllowAny
+from rest_framework_simplejwt.views import TokenObtainPairView
 import re
 
 class FileUploadView(APIView):
@@ -82,3 +86,17 @@ class UploadHistoryView(APIView):
         result_page = paginator.paginate_queryset(uploads, request)
         serializer = UploadHistorySerializer(result_page, many=True)
         return paginator.get_paginated_response(serializer.data)
+
+class CustomAuthToken(TokenObtainPairView):
+    permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        username = request.data.get("username")
+        password = request.data.get("password")
+        user = authenticate(username=username, password=password)
+
+        if user is not None:
+            return super().post(request, *args, **kwargs)
+        else:
+            return Response({"error": "Credenciais inválidas."}, status=status.HTTP_400_BAD_REQUEST)
+
