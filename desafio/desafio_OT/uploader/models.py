@@ -1,10 +1,16 @@
 from django.db import models
 
 class UploadHistory(models.Model):
-    file_name = models.CharField(max_length=255, unique=True)  
+    file_name = models.CharField(max_length=255, unique=True)
     uploaded_at = models.DateTimeField(auto_now_add=True)
     reference_date = models.DateField(default='1954-01-01')
-    
+    updated_by = models.CharField(max_length=255, blank=True) 
+    file_size = models.PositiveIntegerField(null=True, blank=True, default=0) 
+    row_count = models.PositiveIntegerField(null=True, blank=True, default=0)  
+    row_processed = models.PositiveIntegerField(null=True, blank=True, default=0)  
+    row_failed = models.PositiveIntegerField(null=True, blank=True, default=0) 
+    failed_rows = models.TextField(blank=True)  
+
     def __str__(self):
         return f"{self.file_name} - {self.reference_date}"
 

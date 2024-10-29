@@ -19,10 +19,11 @@ class FileUploadView(APIView):
     def post(self, request):
         file = request.FILES.get('file')
         reference_date = request.data.get('reference_date')
-        
+        updated_by = request.user.username 
+
         if not file or not reference_date:
             return Response({"error": "Arquivo e data de referência são obrigatórios."}, status=status.HTTP_400_BAD_REQUEST)
-      
+
         if UploadHistory.objects.filter(file_name=file.name).exists():
             return Response({"error": "Este arquivo já foi carregado anteriormente."}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -30,43 +31,59 @@ class FileUploadView(APIView):
             return Response({"error": "Formato de arquivo inválido. Somente arquivos CSV, XLSX e XLS são permitidos."}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-           parsed_date = parse_date(reference_date)
-           if not parsed_date or not self.is_valid_date(reference_date):
-               raise ValueError 
+            parsed_date = parse_date(reference_date)
+            if not parsed_date or not self.is_valid_date(reference_date):
+                raise ValueError 
         except (ValueError, TypeError):
             return Response({"error": "Data de referência inválida. O formato deve ser YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
+
+        file_size = file.size
         
         upload_history = UploadHistory.objects.create(
             file_name=file.name,
-            reference_date=parsed_date
+            reference_date=parsed_date,
+            updated_by=updated_by,
+            file_size=file_size,
         )
-        
+
+        row_failed = 0
+        row_processed = 0
+        failed_rows = []
+
         try:
             decoded_file = file.read().decode('utf-8')
             df = pd.read_csv(io.StringIO(decoded_file), delimiter=';', skiprows=1)
 
-            if df['RptDt'].isnull().any() or df['RptDt'].eq('').any():
-                return Response({"error": "A coluna 'RptDt' não pode ser vazia."}, status=status.HTTP_400_BAD_REQUEST)
-
-            df['Parsed_RptDt'] = pd.to_datetime(df['RptDt'], errors='coerce')
-
-            if df['Parsed_RptDt'].isnull().any():
-                invalid_dates = df[df['Parsed_RptDt'].isnull()]['RptDt'].unique()
-                return Response({"error": f"Datas de referência inválidas: {', '.join(invalid_dates)}. O formato deve ser YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
-
             data_instances = []
-            for _, row in df.iterrows():
-                data_instance = Data(
-                    RptDt=row['Parsed_RptDt'],
-                    TckrSymb=row['TckrSymb'],
-                    MktNm=row['MktNm'],
-                    SctyCtgyNm=row['SctyCtgyNm'],
-                    ISIN=row['ISIN'],
-                    CrpnNm=row['CrpnNm'],
-                )
-                data_instances.append(data_instance)
-
+            for index, row in df.iterrows():
+                try:
+                    parsed_rptdt = pd.to_datetime(row['RptDt'], errors='coerce')
+                    
+                    if pd.isna(parsed_rptdt) or pd.isna(row['TckrSymb']) or pd.isna(row['MktNm']) or \
+                    pd.isna(row['SctyCtgyNm']) or pd.isna(row['ISIN']) or pd.isna(row['CrpnNm']):
+                        row_failed += 1
+                        failed_rows.append(index)  
+                        continue  
+                    
+                    data_instance = Data(
+                        RptDt=parsed_rptdt,
+                        TckrSymb=row['TckrSymb'],
+                        MktNm=row['MktNm'],
+                        SctyCtgyNm=row['SctyCtgyNm'],
+                        ISIN=row['ISIN'],
+                        CrpnNm=row['CrpnNm'],
+                    )
+                    data_instances.append(data_instance)
+                    row_processed += 1
+                except Exception as e:
+                    row_failed += 1
+                    failed_rows.append(index)  
+                    
             Data.objects.bulk_create(data_instances)
+
+            upload_history.row_processed = row_processed
+            upload_history.row_failed = row_failed
+            upload_history.failed_rows = ', '.join(map(str, failed_rows))  
 
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -78,7 +95,7 @@ class FileUploadView(APIView):
         return bool(date_pattern.match(date_str))
 
     def is_valid_file_type(self, filename):
-        valid_extensions = ['.csv', '.xlsx', 'xls']
+        valid_extensions = ['.csv', '.xlsx', '.xls']
         return any(filename.lower().endswith(ext) for ext in valid_extensions)
 
 class UploadHistoryPagination(PageNumberPagination):
@@ -92,29 +109,42 @@ class UploadHistoryView(APIView):
     def get(self, request):
         file_name = request.query_params.get('file_name')
         reference_date = request.query_params.get('reference_date')
-        
+        uploaded_at = request.query_params.get('uploaded_at')
+        updated_by = request.query_params.get('updated_by')
+        file_size = request.query_params.get('file_size')
+        row_count = request.query_params.get('row_count')
+
         uploads = UploadHistory.objects.all()
 
         if file_name:
             uploads = uploads.filter(file_name__icontains=file_name)
-
-        try:
-            if reference_date:
+        if reference_date:
+            try:
                 uploads = uploads.filter(reference_date=parse_date(reference_date))
-        except:
-            return Response({"error": "Data de referência inválida. O formato deve ser YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
+            except ValueError:
+                return Response({"error": "Data de referência inválida. O formato deve ser YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
+        if uploaded_at:
+            try:
+                uploads = uploads.filter(uploaded_at__date=parse_date(uploaded_at))
+            except ValueError:
+                return Response({"error": "Data de upload inválida. O formato deve ser YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
+        if updated_by:
+            uploads = uploads.filter(updated_by__icontains=updated_by)
+        if file_size:
+            uploads = uploads.filter(file_size=file_size)
+        if row_count:
+            uploads = uploads.filter(row_count=row_count)
 
         if not uploads.exists():
             return Response({"error": "Nenhum upload encontrado com os critérios fornecidos."}, status=status.HTTP_404_NOT_FOUND)
 
-        page = request.query_params.get('page', 1)
-        page_size = request.query_params.get('page_size', self.pagination_class.page_size)
-
-        if (isinstance(page, str) and page.lstrip('-').isdigit()) and int(page) < 1:
-            return Response({"error": "O número da página deve ser um inteiro positivo."}, status=status.HTTP_400_BAD_REQUEST)
-
-        if (isinstance(page_size, str) and page_size.lstrip('-').isdigit()) and int(page_size) < 1:
-            return Response({"error": "O tamanho da página deve ser um inteiro positivo."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            page = int(request.query_params.get('page', 1))
+            page_size = int(request.query_params.get('page_size', self.pagination_class.page_size))
+            if page < 1 or page_size < 1:
+                raise ValueError
+        except ValueError:
+            return Response({"error": "O número da página e o tamanho da página devem ser inteiros positivos."}, status=status.HTTP_400_BAD_REQUEST)
 
         paginator = self.pagination_class()
         result_page = paginator.paginate_queryset(uploads, request)

@@ -3,10 +3,10 @@ from django.http import JsonResponse
 
 class EndpointValidationMiddleware:
     VALID_ENDPOINTS = [
-        '/uploads/search',  # Adicione aqui seus endpoints válidos
-        '/uploads/token',
-        '/uploads/upload',
-        '/uploads/history',
+        '/uploads/search/',  # Adicione aqui seus endpoints válidos
+        '/uploads/token/',
+        '/uploads/upload/',
+        '/uploads/history/',
     ]
 
     def __init__(self, get_response):
