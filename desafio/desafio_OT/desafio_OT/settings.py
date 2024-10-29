@@ -53,6 +53,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'uploader.middleware.EndpointValidationMiddleware'
 ]
 
 ROOT_URLCONF = 'desafio_OT.urls'
