@@ -15,28 +15,19 @@ import pandas as pd
 import re
 import io
 
+
 class FileUploadView(APIView):
     def post(self, request):
         file = request.FILES.get('file')
         reference_date = request.data.get('reference_date')
         updated_by = request.user.username 
 
-        if not file or not reference_date:
-            return Response({"error": "Arquivo e data de referência são obrigatórios."}, status=status.HTTP_400_BAD_REQUEST)
-
-        if UploadHistory.objects.filter(file_name=file.name).exists():
-            return Response({"error": "Este arquivo já foi carregado anteriormente."}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not self.is_valid_file_type(file.name):
-            return Response({"error": "Formato de arquivo inválido. Somente arquivos CSV, XLSX e XLS são permitidos."}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            parsed_date = parse_date(reference_date)
-            if not parsed_date or not self.is_valid_date(reference_date):
-                raise ValueError 
-        except (ValueError, TypeError):
-            return Response({"error": "Data de referência inválida. O formato deve ser YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
-
+        # Validação de campo arquivo e data de referência
+        error_response = self.validate_file_and_date(file, reference_date)
+        if error_response:
+            return error_response
+        
+        parsed_date = parse_date(reference_date)
         file_size = file.size
         
         upload_history = UploadHistory.objects.create(
@@ -46,170 +37,146 @@ class FileUploadView(APIView):
             file_size=file_size,
         )
 
-        row_failed = 0
-        row_processed = 0
-        failed_rows = []
+        # Processamento do arquivo
+        row_failed, row_processed, failed_rows = self.process_file(file, upload_history)
 
+        # Persistência dos dados e histórico
+        upload_history.row_processed = row_processed
+        upload_history.row_failed = row_failed
+        upload_history.failed_rows = ', '.join(map(str, failed_rows))  
+        upload_history.save()
+
+        return Response(UploadHistorySerializer(upload_history).data, status=status.HTTP_201_CREATED)
+
+    def validate_file_and_date(self, file, reference_date):
+        if not file or not reference_date:
+            return Response({"error": "Arquivo e data de referência são obrigatórios."}, status=status.HTTP_400_BAD_REQUEST)
+        if UploadHistory.objects.filter(file_name=file.name).exists():
+            return Response({"error": "Este arquivo já foi carregado anteriormente."}, status=status.HTTP_400_BAD_REQUEST)
+        if not self.is_valid_file_type(file.name):
+            return Response({"error": "Formato de arquivo inválido. Somente arquivos CSV, XLSX e XLS são permitidos."}, status=status.HTTP_400_BAD_REQUEST)
+        if not parse_date(reference_date) or not self.is_valid_date(reference_date):
+            return Response({"error": "Data de referência inválida. O formato deve ser YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
+        return None
+    
+    def process_file(self, file, upload_history):
+        row_failed, row_processed, failed_rows = 0, 0, []
         try:
             decoded_file = file.read().decode('utf-8')
             df = pd.read_csv(io.StringIO(decoded_file), delimiter=';', skiprows=1)
 
             data_instances = []
             for index, row in df.iterrows():
-                try:
-                    parsed_rptdt = pd.to_datetime(row['RptDt'], errors='coerce')
-                    
-                    if pd.isna(parsed_rptdt) or pd.isna(row['TckrSymb']) or pd.isna(row['MktNm']) or \
-                    pd.isna(row['SctyCtgyNm']) or pd.isna(row['ISIN']) or pd.isna(row['CrpnNm']):
-                        row_failed += 1
-                        failed_rows.append(index)  
-                        continue  
-                    
-                    data_instance = Data(
-                        RptDt=parsed_rptdt,
-                        TckrSymb=row['TckrSymb'],
-                        MktNm=row['MktNm'],
-                        SctyCtgyNm=row['SctyCtgyNm'],
-                        ISIN=row['ISIN'],
-                        CrpnNm=row['CrpnNm'],
-                    )
-                    data_instances.append(data_instance)
-                    row_processed += 1
-                except Exception as e:
+                if not self.validate_row(row):
                     row_failed += 1
-                    failed_rows.append(index)  
-                    
+                    failed_rows.append(index)
+                    continue
+                
+                data_instance = Data(
+                    RptDt=pd.to_datetime(row['RptDt'], errors='coerce'),
+                    TckrSymb=row['TckrSymb'],
+                    MktNm=row['MktNm'],
+                    SctyCtgyNm=row['SctyCtgyNm'],
+                    ISIN=row['ISIN'],
+                    CrpnNm=row['CrpnNm'],
+                )
+                data_instances.append(data_instance)
+                row_processed += 1
+            
             Data.objects.bulk_create(data_instances)
-
-            upload_history.row_processed = row_processed
-            upload_history.row_failed = row_failed
-            upload_history.failed_rows = ', '.join(map(str, failed_rows))  
-
         except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
-        return Response(UploadHistorySerializer(upload_history).data, status=status.HTTP_201_CREATED)
+            raise e
+        return row_failed, row_processed, failed_rows
+    
+    @staticmethod
+    def validate_row(row):
+        required_fields = ['RptDt', 'TckrSymb', 'MktNm', 'SctyCtgyNm', 'ISIN', 'CrpnNm']
+        return all(not pd.isna(row[field]) for field in required_fields)
 
-    def is_valid_date(self, date_str):
+    @staticmethod
+    def is_valid_date(date_str):
         date_pattern = re.compile(r'^\d{4}-\d{2}-\d{2}$')
         return bool(date_pattern.match(date_str))
 
-    def is_valid_file_type(self, filename):
+    @staticmethod
+    def is_valid_file_type(filename):
         valid_extensions = ['.csv', '.xlsx', '.xls']
         return any(filename.lower().endswith(ext) for ext in valid_extensions)
+
 
 class UploadHistoryPagination(PageNumberPagination):
     page_size = 10  
     page_size_query_param = 'page_size'  
     max_page_size = 100 
 
+
 class UploadHistoryView(APIView):
     pagination_class = UploadHistoryPagination  
 
     def get(self, request):
-        file_name = request.query_params.get('file_name')
-        reference_date = request.query_params.get('reference_date')
-        uploaded_at = request.query_params.get('uploaded_at')
-        updated_by = request.query_params.get('updated_by')
-        file_size = request.query_params.get('file_size')
-        row_count = request.query_params.get('row_count')
+        filters = {
+            'file_name': 'file_name__icontains',
+            'reference_date': 'reference_date',
+            'uploaded_at': 'uploaded_at__date',
+            'updated_by': 'updated_by__icontains',
+            'file_size': 'file_size',
+            'row_count': 'row_count'
+        }
 
         uploads = UploadHistory.objects.all()
-
-        if file_name:
-            uploads = uploads.filter(file_name__icontains=file_name)
-        if reference_date:
-            try:
-                uploads = uploads.filter(reference_date=parse_date(reference_date))
-            except ValueError:
-                return Response({"error": "Data de referência inválida. O formato deve ser YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
-        if uploaded_at:
-            try:
-                uploads = uploads.filter(uploaded_at__date=parse_date(uploaded_at))
-            except ValueError:
-                return Response({"error": "Data de upload inválida. O formato deve ser YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
-        if updated_by:
-            uploads = uploads.filter(updated_by__icontains=updated_by)
-        if file_size:
-            uploads = uploads.filter(file_size=file_size)
-        if row_count:
-            uploads = uploads.filter(row_count=row_count)
-
+        for param, db_filter in filters.items():
+            value = request.query_params.get(param)
+            if value:
+                if param in ['reference_date', 'uploaded_at']:
+                    try:
+                        uploads = uploads.filter(**{db_filter: parse_date(value)})
+                    except ValueError:
+                        return Response({"error": f"Data inválida para o campo {param}."}, status=status.HTTP_400_BAD_REQUEST)
+                else:
+                    uploads = uploads.filter(**{db_filter: value})
+        
         if not uploads.exists():
             return Response({"error": "Nenhum upload encontrado com os critérios fornecidos."}, status=status.HTTP_404_NOT_FOUND)
-
-        try:
-            page = int(request.query_params.get('page', 1))
-            page_size = int(request.query_params.get('page_size', self.pagination_class.page_size))
-            if page < 1 or page_size < 1:
-                raise ValueError
-        except ValueError:
-            return Response({"error": "O número da página e o tamanho da página devem ser inteiros positivos."}, status=status.HTTP_400_BAD_REQUEST)
-
+        
         paginator = self.pagination_class()
         result_page = paginator.paginate_queryset(uploads, request)
         serializer = UploadHistorySerializer(result_page, many=True)
         return paginator.get_paginated_response(serializer.data)
 
+
 class CustomAuthToken(TokenObtainPairView):
     permission_classes = [AllowAny]
 
     def post(self, request, *args, **kwargs):
-        username = request.data.get("username")
-        password = request.data.get("password")
+        username, password = request.data.get("username"), request.data.get("password")
         user = authenticate(username=username, password=password)
-
-        if user is not None:
+        if user:
             return super().post(request, *args, **kwargs)
-        else:
-            return Response({"error": "Credenciais inválidas."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"error": "Credenciais inválidas."}, status=status.HTTP_400_BAD_REQUEST)
 
 class SearchView(APIView):
     def get(self, request):
-        tckr_symb = request.query_params.get('TckrSymb')
-        rpt_dt = request.query_params.get('RptDt')
-        mkt_nm = request.query_params.get('MktNm')
-        scty_ctgy_nm = request.query_params.get('SctyCtgyNm')
-        isin = request.query_params.get('ISIN')
-        crpn_nm = request.query_params.get('CrpnNm')
+        query_params = {
+            'TckrSymb': 'TckrSymb',
+            'RptDt': 'RptDt',
+            'MktNm': 'MktNm',
+            'SctyCtgyNm': 'SctyCtgyNm',
+            'ISIN': 'ISIN',
+            'CrpnNm': 'CrpnNm'
+        }
 
         queryset = Data.objects.all()
-
-        if tckr_symb:
-            if not isinstance(tckr_symb, str) or not tckr_symb.strip():
-                return Response({"error": "O campo 'TckrSymb' deve ser uma string não vazia."}, status=status.HTTP_400_BAD_REQUEST)
-            queryset = queryset.filter(TckrSymb=tckr_symb)
-
-        if rpt_dt:
-            try:
-                parsed_date = datetime.strptime(rpt_dt, '%Y-%m-%d').date()  
-                queryset = queryset.filter(RptDt=parsed_date)  
-            except ValueError:
-                return Response({"error": "O campo 'RptDt' deve estar no formato YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
-
-        if mkt_nm:
-            if not isinstance(mkt_nm, str) or not mkt_nm.strip():
-                return Response({"error": "O campo 'MktNm' deve ser uma string não vazia."}, status=status.HTTP_400_BAD_REQUEST)
-            queryset = queryset.filter(MktNm=mkt_nm)
-
-        if scty_ctgy_nm:
-            if not isinstance(scty_ctgy_nm, str) or not scty_ctgy_nm.strip():
-                return Response({"error": "O campo 'SctyCtgyNm' deve ser uma string não vazia."}, status=status.HTTP_400_BAD_REQUEST)
-            queryset = queryset.filter(SctyCtgyNm=scty_ctgy_nm)
-
-        if isin:
-            if not isinstance(isin, str) or not isin.strip():
-                return Response({"error": "O campo 'ISIN' deve ser uma string não vazia."}, status=status.HTTP_400_BAD_REQUEST)
-            queryset = queryset.filter(ISIN=isin)
-
-        if crpn_nm:
-            if not isinstance(crpn_nm, str) or not crpn_nm.strip():
-                return Response({"error": "O campo 'CrpnNm' deve ser uma string não vazia."}, status=status.HTTP_400_BAD_REQUEST)
-            queryset = queryset.filter(CrpnNm=crpn_nm)
-
+        for param, field in query_params.items():
+            value = request.query_params.get(param)
+            if value:
+                if param == 'RptDt':
+                    try:
+                        value = datetime.strptime(value, '%Y-%m-%d').date()
+                    except ValueError:
+                        return Response({"error": f"O campo '{param}' deve estar no formato YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
+                queryset = queryset.filter(**{field: value})
+        
         paginator = UploadHistoryPagination()
         paginated_queryset = paginator.paginate_queryset(queryset, request)
-
         serializer = SecurityDataSerializer(paginated_queryset, many=True)
-
         return paginator.get_paginated_response(serializer.data)
