@@ -73,7 +73,7 @@ class FileUploadView(APIView):
                     continue
                 
                 data_instance = Data(
-                    RptDt=pd.to_datetime(row['RptDt'], errors='coerce'),
+                    RptDt=pd.to_datetime(row['RptDt'], format='%d/%m/%Y', errors='coerce'),
                     TckrSymb=row['TckrSymb'],
                     MktNm=row['MktNm'],
                     SctyCtgyNm=row['SctyCtgyNm'],
@@ -123,7 +123,7 @@ class UploadHistoryView(APIView):
             'row_count': 'row_count'
         }
 
-        uploads = UploadHistory.objects.all()
+        uploads = UploadHistory.objects.all().order_by('uploaded_at')
         for param, db_filter in filters.items():
             value = request.query_params.get(param)
             if value:
@@ -165,7 +165,7 @@ class SearchView(APIView):
             'CrpnNm': 'CrpnNm'
         }
 
-        queryset = Data.objects.all()
+        queryset = Data.objects.all().order_by('RptDt')
         for param, field in query_params.items():
             value = request.query_params.get(param)
             if value:
