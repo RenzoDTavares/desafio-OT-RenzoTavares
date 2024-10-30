@@ -2,51 +2,164 @@
     <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn%3AANd9GcQIAOtqQ5is5vwbcEn0ZahZfMxz1QIeAYtFfnLdkCXu1sqAGbnX" width="300">
  </p>
  
-### A Oliveira Trust:
-A Oliveira Trust é uma das maiores empresas do setor Financeiro com muito orgulho, desde 1991, realizamos as maiores transações do mercado de Títulos e Valores Mobiliários.
+# API de Upload e Busca de Dados
 
-Somos uma empresa em que valorizamos o nosso colaborador em primeiro lugar, sempre! Alinhando isso com a nossa missão "Promover a satisfação dos nossos clientes e o desenvolvimento pessoal e profissional da nossa equipe", estamos construindo times excepcionais em Tecnologia, Comercial, Engenharia de Software, Produto, Financeiro, Jurídico e Data Science.
+## Visão Geral
 
-Estamos buscando uma pessoa que seja movida a desafios, que saiba trabalhar em equipe e queira revolucionar o mercado financeiro!
+Esta API permite o upload de arquivos, armazenamento de informações em um banco de dados e fornece funcionalidades de busca e histórico de uploads. É construída com Django e Django REST Framework.
 
-Front-end? Back-end? Full Stack? Analista de dados? Queremos conhecer gente boa, que goste de colocar a mão na massa, seja responsável e queira fazer história!
+## Estrutura do Projeto
 
-#### O que você precisa saber para entrar no nosso time: 🚀
-- Trabalhar com frameworks (Laravel, Lumen, Yii, Cake, Symfony ou outros...)
-- Banco de dados relacional (MySql, MariaDB)
-- Trabalhar com microsserviços
+As principais funcionalidades incluem:
 
-#### O que seria legal você saber também: 🚀
-- Conhecimento em banco de dados não relacional;
-- Conhecimento em docker;
-- Conhecimento nos serviços da AWS (RDS, DynamoDB, DocumentDB, Elasticsearch);
-- Conhecimento em metodologias ágeis (Scrum/Kanban);
+- **Upload de Arquivos:** Carregue arquivos CSV, XLSX e XLS.
+- **Histórico de Uploads:** Mantenha um histórico dos arquivos carregados.
+- **Busca de Dados:** Realize consultas em dados carregados.
+- **Autenticação:** Utilize tokens JWT para autenticação.
 
-#### Ao entrar nessa jornada com o nosso time, você vai: 🚀
-- Trabalhar em uma equipe de tecnologia, em um ambiente leve e descontraído e vivenciar a experiência de mudar o mercado financeiro;
-- Dress code da forma que você se sentir mais confortável;
-- Flexibilidade para home office e horários;
-- Acesso a cursos patrocinados pela empresa;
+## URLs da API
 
-#### Benefícios 🚀
-- Salário compatível com o mercado;
-- Vale Refeição (CAJU);
-- Vale Alimentação (CAJU);
-- Vale Transporte ou Vale Combustível (CAJU);
-- Plano de Saúde e Odontológico;
-- Seguro de vida;
-- PLR Semestral;
-- Horário Flexível;
-- Parcerias em farmácias
+Abaixo estão os endpoints disponíveis na API:
 
-#### Local: 🚀
-Barra da Tijuca, Rio de Janeiro, RJ
+| Método | Endpoint          | Descrição                                                  |
+|--------|-------------------|------------------------------------------------------------|
+| GET    | `/api/v1/`       | Visualiza os endpoints da API.                             |
+| POST   | `/api/v1/upload/` | Faz o upload de um arquivo e armazena as informações no banco de dados. |
+| GET    | `/api/v1/history/`| Retorna o histórico de uploads com paginação.             |
+| POST   | `/api/v1/token/`  | Obtém um token de autenticação com base em nome de usuário e senha. |
+| GET    | `/api/v1/search/` | Realiza uma busca de registros com filtros específicos.    |
 
-#### Conheça mais sobre nós! :sunglasses:
-- Website (https://www.oliveiratrust.com.br/)
-- LinkedIn (https://www.linkedin.com/company/oliveiratrust/)
+## Instalação
 
-A Oliveira Trust acredita na inclusão e na promoção da diversidade em todas as suas formas. Temos como valores o respeito e valorização das pessoas e combatemos qualquer tipo de discriminação. Incentivamos a todos que se identifiquem com o perfil e requisitos das vagas disponíveis que candidatem, sem qualquer distinção.
+### Pré-requisitos
 
-## Pronto para o desafio? 🚀🚀🚀🚀
-https://github.com/Oliveira-Trust/desafio-desenvolvedor/blob/master/vaga3.md
+- Python 3.8.2
+- Django
+- Django REST Framework
+- Pandas
+- Django REST Framework Simple JWT
+
+### Passos para Instalação
+
+1. Clone o repositório:
+   ```bash
+   git clone https://github.com/seu_usuario/seu_repositorio.git
+   ```
+
+2. Navegue até o diretório do projeto:
+   ```bash
+   cd seu_repositorio
+   ```
+
+3. Crie um ambiente virtual e ative-o:
+   ```bash
+   python -m venv env
+   `.\env\Scripts\activate`
+   ```
+
+4. Instale as dependências:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+5. Execute as migrações:
+   ```bash
+   python manage.py migrate
+   ```
+
+6. Inicie o servidor de desenvolvimento:
+   ```bash
+   python manage.py runserver
+   ```
+
+## Uso
+
+### 1. Autenticação
+
+Para autenticar um usuário e obter um token, faça uma solicitação `POST` para o endpoint `/api/v1/token/` com os seguintes dados:
+
+```json
+{
+  "username": "seu_usuario",
+  "password": "sua_senha"
+}
+```
+
+**Exemplo com Postman:**
+- **URL:** `http://localhost:8000/api/v1/token/`
+- **Método:** `POST`
+- **Body:** form-data ou raw com JSON
+
+### 2. Upload de Arquivo
+
+Para fazer o upload de um arquivo, envie uma solicitação `POST` para o endpoint `/api/v1/upload/` com os seguintes dados:
+
+- `file`: O arquivo a ser carregado (CSV, XLSX ou XLS).
+- `reference_date`: Data de referência no formato `YYYY-MM-DD`.
+
+**Melhoria:** Há uma validação no processamento que, caso as colunas ['RptDt', 'TckrSymb', 'MktNm', 'SctyCtgyNm', 'ISIN'] estejam nulas, o processamento ignorará essa linha.
+
+**Exemplo com Postman:**
+- **URL:** `http://localhost:8000/api/v1/upload/`
+- **Método:** `POST`
+- **Body:** form-data
+  - `file`: Selecione o arquivo
+  - `reference_date`: `2024-10-29` 
+- **Cabeçalho:**
+    - Authorization: Bearer SEU_TOKEN
+
+### 3. Consultar o Histórico de Uploads
+
+Para consultar o histórico de uploads, envie uma solicitação `GET` para o endpoint `/api/v1/history/`.
+
+**Exemplo com Postman:**
+- **URL:** `http://localhost:8000/api/v1/history/`
+- **Método:** `GET`
+- **Cabeçalho:**
+    - Authorization: Bearer SEU_TOKEN
+
+### 4. Buscar Dados
+
+Para buscar dados específicos, envie uma solicitação `GET` para o endpoint `/api/v1/search/` com os parâmetros desejados.
+
+**Exemplo de Parâmetros:**
+- `TckrSymb`: Símbolo do ticker.
+- `RptDt`: Data do relatório no formato `YYYY-MM-DD`.
+- `MktNm`: Nome do mercado.
+- `SctyCtgyNm`: Categoria de segurança.
+- `ISIN`: Código ISIN.
+- `CrpnNm`: Nome da corporação.
+- **Cabeçalho:**
+    - Authorization: Bearer SEU_TOKEN
+
+**Exemplo com Postman:**
+- **URL:** `http://localhost:8000/api/v1/search/?TckrSymb=AAPL`
+- **Método:** `GET`
+- **Cabeçalho:**
+    - Authorization: Bearer SEU_TOKEN
+
+## Testes 
+
+Os testes para a API estão organizados na classe HistoryTests, SearchTests, UploadTests e TokenAuthTests, que utiliza o framework de testes do Django. Os testes abrangem as seguintes funcionalidades:
+- CT001: Upload de um arquivo sem erros
+- CT002: Upload de um arquivo com erros em 6 linhas
+- CT003: Upload de um arquivo já existente na base de dados
+- CT004: Upload de um arquivo sem os campos obrigatórios (file e reference_date)
+- CT005: Upload de um arquivo invalido
+- CT006: Upload de um arquivo sem as credenciais de acesso    
+- CT007: Filtro por nome do arquivo no histórico
+- CT008: Busca de histórico com diretório vazio
+- CT009: Busca de um item com parametros
+- CT010: Busca de um item com parametro de data errado
+- CT011: Validação de paginação na busca de vários itens
+- CT012: Login com as credenciais corretas    
+- CT013: Login com as credenciais erradas
+
+Você pode rodar os testes utilizando o comando:
+```bash
+python manage.py test uploader/tests
+````
+
+## Contribuidor
+
+Este projeto foi desenvolvido por [Renzo Tavares](https://www.linkedin.com/in/renzotavares/) para o desafio referente a uma vaga de desenvolvedor na Oliveira Trust.
