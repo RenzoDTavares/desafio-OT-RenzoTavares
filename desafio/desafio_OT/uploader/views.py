@@ -15,7 +15,18 @@ import pandas as pd
 import re
 import io
 
+class ApiOverviewView(APIView):
+    permission_classes = [AllowAny]
 
+    def get(self, request):
+        api_endpoints = {
+            "upload/": "Faz o upload de um arquivo e armazena as informações no banco de dados.",
+            "history/": "Retorna o histórico de uploads.",
+            "search/": "Realiza uma busca de registros.",
+            "token/": "Obtém um token de autenticação com base em nome de usuário e senha.",
+        }
+        return Response(api_endpoints)
+    
 class FileUploadView(APIView):
     def post(self, request):
         file = request.FILES.get('file')
