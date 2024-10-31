@@ -48,7 +48,7 @@ Abaixo estão os endpoints disponíveis na API:
 
 2. Navegue até o diretório do projeto:
    ```bash
-   cd seu_repositorio
+   cd desafio_OT
    ```
 
 3. Crie um ambiente virtual e ative-o:
